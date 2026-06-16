@@ -1,0 +1,135 @@
+/**
+ * YAML config loader with env-var overrides and validation.
+ * @see .omo/plans/zcode-proxy.md Task 2
+ */
+import { readFileSync, existsSync } from "node:fs";
+import { parse } from "yaml";
+import type { ProxyConfig, ProviderEndpoints } from "./types.js";
+
+/** Environment variable keys that override YAML values. */
+const ENV = {
+  PORT: "ZCODE_PROXY_PORT",
+  PROXY_API_KEY: "ZCODE_PROXY_API_KEY",
+  PROVIDER: "ZCODE_PROVIDER",
+  API_KEY: "ZCODE_API_KEY",
+} as const;
+
+const DEFAULTS = {
+  PORT: 8080,
+  HOST: "0.0.0.0",
+  PROVIDER: "zai" as const,
+  DEFAULT_MODEL: "glm-4.6",
+  LOG_LEVEL: "info" as const,
+  ZAI_ANTHROPIC_BASE: "https://api.z.ai/api/anthropic",
+  ZAI_OPENAI_BASE: "https://api.z.ai/api/coding/paas/v4",
+  BIGMODEL_ANTHROPIC_BASE: "https://open.bigmodel.cn/api/anthropic",
+  BIGMODEL_OPENAI_BASE: "https://open.bigmodel.cn/api/coding/paas/v4",
+};
+
+/**
+ * Load and validate proxy configuration from a YAML file, applying env overrides.
+ * @throws Error if file not found or required fields are invalid.
+ */
+export function loadConfig(path: string): ProxyConfig {
+  if (!existsSync(path)) {
+    throw new Error(`Config file not found: ${path}`);
+  }
+
+  const raw = readFileSync(path, "utf-8");
+  const parsed = parse(raw) ?? {};
+
+  // --- server ---
+  const port = resolvePort(process.env[ENV.PORT] ?? parsed?.server?.port);
+  const host = typeof parsed?.server?.host === "string" ? parsed.server.host : DEFAULTS.HOST;
+
+  // --- auth ---
+  const proxyApiKey = process.env[ENV.PROXY_API_KEY] ?? parsed?.auth?.proxyApiKey;
+  const mode = parsed?.auth?.mode === "oauth" ? "oauth" : "apikey";
+  const apiKey = process.env[ENV.API_KEY] ?? parsed?.auth?.apiKey;
+  const oauthCredentialsPath = parsed?.auth?.oauthCredentialsPath;
+
+  // --- provider ---
+  const provider = resolveProvider(process.env[ENV.PROVIDER] ?? parsed?.provider);
+
+  // --- providers ---
+  const zai: ProviderEndpoints = {
+    anthropicBase: parsed?.providers?.zai?.anthropicBase ?? DEFAULTS.ZAI_ANTHROPIC_BASE,
+    openaiBase: parsed?.providers?.zai?.openaiBase ?? DEFAULTS.ZAI_OPENAI_BASE,
+    credential: parsed?.providers?.zai?.credential,
+  };
+  const bigmodel: ProviderEndpoints = {
+    anthropicBase: parsed?.providers?.bigmodel?.anthropicBase ?? DEFAULTS.BIGMODEL_ANTHROPIC_BASE,
+    openaiBase: parsed?.providers?.bigmodel?.openaiBase ?? DEFAULTS.BIGMODEL_OPENAI_BASE,
+    credential: parsed?.providers?.bigmodel?.credential,
+  };
+
+  // --- models ---
+  const defaultModel = typeof parsed?.defaultModel === "string" ? parsed.defaultModel : DEFAULTS.DEFAULT_MODEL;
+  const models = Array.isArray(parsed?.models) ? parsed.models : [defaultModel];
+
+  // --- logging ---
+  const logLevel = resolveLogLevel(parsed?.logging?.level);
+
+  const config: ProxyConfig = {
+    server: { port, host },
+    auth: { proxyApiKey, mode, apiKey, oauthCredentialsPath },
+    provider,
+    providers: { zai, bigmodel },
+    defaultModel,
+    models,
+    logging: { level: logLevel },
+  };
+
+  validate(config);
+  return config;
+}
+
+/** Resolve port from raw value (YAML or env), defaulting to 8080. */
+function resolvePort(raw: unknown): number {
+  if (raw === undefined || raw === null) return DEFAULTS.PORT;
+  const n = typeof raw === "number" ? raw : parseInt(String(raw), 10);
+  if (!Number.isFinite(n)) {
+    throw new Error("server.port must be a valid number");
+  }
+  return n;
+}
+
+/** Resolve and validate provider string. */
+function resolveProvider(raw: unknown): "zai" | "bigmodel" {
+  const v = typeof raw === "string" ? raw : DEFAULTS.PROVIDER;
+  if (v !== "zai" && v !== "bigmodel") {
+    throw new Error(`Invalid provider "${v}": must be "zai" or "bigmodel"`);
+  }
+  return v;
+}
+
+/** Resolve log level with fallback. */
+function resolveLogLevel(raw: unknown): "debug" | "info" | "warn" | "error" {
+  const levels = ["debug", "info", "warn", "error"] as const;
+  if (typeof raw === "string" && levels.includes(raw as any)) {
+    return raw as any;
+  }
+  return DEFAULTS.LOG_LEVEL;
+}
+
+/** Cross-field validation after all fields are resolved. */
+function validate(config: ProxyConfig): void {
+  if (config.server.port < 1 || config.server.port > 65535) {
+    throw new Error(`server.port ${config.server.port} is out of range (1-65535)`);
+  }
+
+  if (config.auth.mode === "apikey") {
+    const hasGlobal = typeof config.auth.apiKey === "string" && config.auth.apiKey.length > 0;
+    const hasProvider = typeof config.providers[config.provider].credential === "string";
+    if (!hasGlobal && !hasProvider) {
+      throw new Error(
+        `auth.apiKey is required when auth.mode is "apikey" (or set providers.${config.provider}.credential)`,
+      );
+    }
+  }
+
+  if (!config.models.includes(config.defaultModel)) {
+    // defaultModel not in the models list — add it automatically
+    config.models.push(config.defaultModel);
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+*.log
+config.yaml
+.omo/evidence/
+dist/
+.DS_Store
+*.tsbuildinfo

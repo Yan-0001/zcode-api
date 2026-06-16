@@ -1,0 +1,52 @@
+/**
+ * Configuration types for zcode-proxy.
+ * @see .omo/plans/zcode-proxy.md Task 2
+ */
+
+/** Provider endpoint configuration (one per upstream provider). */
+export interface ProviderEndpoints {
+  /** Base URL for Anthropic-format API, e.g. "https://api.z.ai/api/anthropic". */
+  anthropicBase: string;
+  /** Base URL for OpenAI-format API, e.g. "https://api.z.ai/api/coding/paas/v4". */
+  openaiBase: string;
+  /** Provider-specific credential override. If absent, uses the global `auth.apiKey`. */
+  credential?: string;
+}
+
+/** Auth section of the proxy configuration. */
+export interface AuthConfig {
+  /**
+   * Key that clients must provide to use the proxy (via `Authorization: Bearer {proxyApiKey}`).
+   * If unset, the proxy does not require client auth.
+   */
+  proxyApiKey?: string;
+  /** How the proxy obtains the upstream credential. */
+  mode: "apikey" | "oauth";
+  /** Direct credential for `apikey` mode. Format: `{apiKey}` or `{apiKey}.{secret}` (Z.AI). */
+  apiKey?: string;
+  /** Path to stored OAuth credentials (for `oauth` mode). */
+  oauthCredentialsPath?: string;
+}
+
+/** Top-level proxy configuration. */
+export interface ProxyConfig {
+  server: {
+    port: number;
+    host: string;
+  };
+  auth: AuthConfig;
+  /** Active upstream provider. */
+  provider: "zai" | "bigmodel";
+  /** Per-provider endpoint overrides. */
+  providers: {
+    zai: ProviderEndpoints;
+    bigmodel: ProviderEndpoints;
+  };
+  /** Default model id used when client request omits `model`. */
+  defaultModel: string;
+  /** Whitelist of allowed model ids. */
+  models: string[];
+  logging: {
+    level: "debug" | "info" | "warn" | "error";
+  };
+}

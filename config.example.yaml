@@ -1,0 +1,43 @@
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+auth:
+  # "apikey" = use a pre-obtained API key directly
+  # "oauth"  = use OAuth login flow (run `bun run src/cli/login.ts` first)
+  mode: apikey
+
+  # For apikey mode:
+  #   Z.AI:     "yourApiKey.yourSecretKey"
+  #   Bigmodel: "yourApiKey"
+  apiKey: "YOUR_API_KEY_HERE"
+
+  # Key that clients must provide to use the proxy.
+  # Set to null/omit to disable client auth.
+  proxyApiKey: "your-proxy-secret"
+
+  # For oauth mode (path to stored credentials from login flow):
+  # oauthCredentialsPath: "~/.zcode-proxy/credentials.json"
+
+# Which upstream provider to use: "zai" or "bigmodel"
+provider: zai
+
+providers:
+  zai:
+    anthropicBase: "https://api.z.ai/api/anthropic"
+    openaiBase: "https://api.z.ai/api/coding/paas/v4"
+  bigmodel:
+    anthropicBase: "https://open.bigmodel.cn/api/anthropic"
+    openaiBase: "https://open.bigmodel.cn/api/coding/paas/v4"
+
+defaultModel: glm-4.6
+
+models:
+  - glm-5.1
+  - glm-5
+  - glm-4.7
+  - glm-4.6
+  - glm-4.5
+
+logging:
+  level: info
