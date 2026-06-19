@@ -36,6 +36,7 @@ export async function proxyRequest(
   const { config, auth } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const started = Date.now();
+  const reqId = nextReqId();
 
   const body = await readBody(clientReq);
 
@@ -52,7 +53,7 @@ export async function proxyRequest(
   try {
     cred = await auth.getCredential();
   } catch (err) {
-    logRequest(format, meta, 503, started);
+    printRow(reqId, format, meta, 503, started, Date.now(), 0, 0, 0);
     return errorResponse(503, "credential_unavailable", (err as Error).message);
   }
 
@@ -63,16 +64,26 @@ export async function proxyRequest(
   try {
     upstreamResp = await fetchImpl(upstreamReq, { decompress: false });
   } catch (err) {
-    logRequest(format, meta, 502, started);
+    printRow(reqId, format, meta, 502, started, Date.now(), 0, 0, 0);
     return errorResponse(502, "upstream_unreachable", (err as Error).message);
   }
+  const headersAt = Date.now();
 
   if (upstreamResp.status === 401 && config.plan === "start-plan") {
-    logRequest(format, meta, 401, started);
+    printRow(reqId, format, meta, 401, started, headersAt, 0, 0, 0);
     return errorResponse(401, "start_plan_jwt_invalid", "Start-plan JWT was rejected. Re-run: zcode-proxy auth login");
   }
 
-  logRequest(format, meta, upstreamResp.status, started);
+  const isSSE = upstreamResp.headers.get("content-type")?.includes("text/event-stream") ?? false;
+  const ttfb = headersAt - started;
+
+  if (isSSE && upstreamResp.body) {
+    const [clientBody, statsBody] = upstreamResp.body.tee();
+    observeStream(reqId, format, meta, upstreamResp.status, ttfb, started, statsBody, upstreamResp.headers.get("content-encoding"));
+    return passthroughResponse(upstreamResp, clientBody);
+  }
+
+  printRow(reqId, format, meta, upstreamResp.status, started, headersAt, 0, 0, 0);
   return passthroughResponse(upstreamResp);
 }
 
@@ -88,7 +99,7 @@ async function readBody(req: Request): Promise<string | undefined> {
  * Create a passthrough response that streams the upstream body to the client.
  * Preserves status, headers, and body stream.
  */
-function passthroughResponse(upstream: Response): Response {
+function passthroughResponse(upstream: Response, body?: ReadableStream<Uint8Array>): Response {
   const headers = new Headers();
   const forwardHeaders = [
     "content-type",
@@ -108,7 +119,7 @@ function passthroughResponse(upstream: Response): Response {
     if (v) headers.set(h, v);
   }
 
-  return new Response(upstream.body, {
+  return new Response(body ?? upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers,
@@ -144,12 +155,102 @@ function peekBody(body: string | undefined): RequestMeta {
   }
 }
 
-function logRequest(format: Format, meta: RequestMeta, status: number, started: number): void {
-  const ts = new Date().toISOString().slice(11, 23);
-  const elapsed = Date.now() - started;
+let reqCounter = 0;
+let headerPrinted = false;
+
+function nextReqId(): string {
+  return `#${String(++reqCounter).padStart(3, "0")}`;
+}
+
+function printHeader(): void {
+  if (headerPrinted) return;
+  headerPrinted = true;
+  console.log(
+    "| #    | Time       | Fmt | Model       | Mode   | Stat |    TTFB |   Tok |  tok/s |   Total |",
+  );
+  console.log(
+    "|------|------------|-----|-------------|--------|------|---------|-------|--------|---------|",
+  );
+}
+
+function printRow(
+  reqId: string,
+  format: Format,
+  meta: RequestMeta,
+  status: number,
+  started: number,
+  headersAt: number,
+  tokens: number,
+  avgTps: number,
+  streamEndAt: number,
+): void {
+  printHeader();
+  const ts = new Date(started).toISOString().slice(11, 19);
   const tag = format === "anthropic" ? "ANT" : "OAI";
   const mode = meta.stream ? "stream" : "batch";
+  const ttfb = `${headersAt - started}ms`;
+  const total = streamEndAt > started ? `${streamEndAt - started}ms` : "-";
+  const tok = tokens > 0 ? String(tokens) : "-";
+  const tps = avgTps > 0 ? avgTps.toFixed(1) : "-";
   console.log(
-    `[${ts}] ${tag} ${meta.model.padEnd(14)} ${mode.padEnd(6)} ${String(status).padEnd(4)} ${elapsed}ms`,
+    `| ${reqId.padEnd(4)} | ${ts.padEnd(10)} | ${tag} | ${meta.model.padEnd(11)} | ${mode.padEnd(6)} | ${String(status).padStart(4)} | ${ttfb.padStart(7)} | ${tok.padStart(5)} | ${tps.padStart(6)} | ${total.padStart(7)} |`,
   );
+}
+
+function observeStream(
+  reqId: string,
+  format: Format,
+  meta: RequestMeta,
+  status: number,
+  ttfb: number,
+  requestSentAt: number,
+  body: ReadableStream<Uint8Array>,
+  contentEncoding: string | null,
+): void {
+  const compressed = contentEncoding !== null;
+  let tokens = 0;
+  let sseBuffer = "";
+
+  function parseSse(text: string): void {
+    for (const line of text.split("\n")) {
+      if (!line.startsWith("data:") || line.includes("[DONE]")) continue;
+      try {
+        const j = JSON.parse(line.slice(5).trim());
+        if (j.usage?.completion_tokens) { tokens = j.usage.completion_tokens; continue; }
+        if (j.usage?.output_tokens) { tokens = j.usage.output_tokens; continue; }
+        // OpenAI content delta: choices[0].delta.content
+        const oai = j.choices?.[0]?.delta?.content;
+        if (typeof oai === "string" && oai.length > 0) { tokens++; continue; }
+        // Anthropic content delta: type=content_block_delta, delta.type=text_delta
+        if (j.type === "content_block_delta" && j.delta?.type === "text_delta") {
+          const t = j.delta?.text;
+          if (typeof t === "string" && t.length > 0) tokens++;
+        }
+      } catch {}
+    }
+  }
+
+  (async () => {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!compressed) {
+          sseBuffer += decoder.decode(value, { stream: true });
+          const idx = sseBuffer.lastIndexOf("\n");
+          if (idx >= 0) {
+            parseSse(sseBuffer.slice(0, idx));
+            sseBuffer = sseBuffer.slice(idx + 1);
+          }
+        }
+      }
+      if (!compressed && sseBuffer) parseSse(sseBuffer);
+    } catch {}
+    const endAt = Date.now();
+    const totalMs = endAt - requestSentAt;
+    const avgTps = tokens > 0 && totalMs > 0 ? tokens / (totalMs / 1000) : 0;
+    printRow(reqId, format, meta, status, requestSentAt, requestSentAt + ttfb, tokens, avgTps, endAt);
+  })().catch(() => {});
 }
