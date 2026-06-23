@@ -1,3 +1,12 @@
+---
+title: ZCode API Proxy
+emoji: 🚀
+colorFrom: purple
+colorTo: red
+sdk: docker
+pinned: false
+---
+
 # zcode-proxy
 
 A reverse proxy for Z.AI / Bigmodel.cn coding-plan APIs that exposes both OpenAI-compatible and Anthropic-format endpoints.
