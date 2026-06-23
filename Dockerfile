@@ -15,7 +15,7 @@ WORKDIR /app
 # Copy only what's needed at runtime
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/bun.lock ./bun.lock
-COPY package.json tsconfig.json ./
+COPY package.json tsconfig.json config.example.yaml config.test.yaml ./
 COPY src/ ./src/
 COPY entrypoint.sh /entrypoint.sh
 
