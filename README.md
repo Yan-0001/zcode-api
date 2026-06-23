@@ -200,6 +200,63 @@ bun run src/index.ts config.yaml
 bun run build
 ```
 
+## Deployment — Render (via Docker)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TriDefender/zcode-api)
+
+### Prerequisites
+
+1. A [Render](https://render.com) account
+2. An API key from [Z.AI](https://z.ai) or [Bigmodel](https://bigmodel.cn)
+
+### One-Click Deploy
+
+Click the button above or follow the manual steps below.
+
+### Manual Setup
+
+1. **Fork/clone this repo** to your GitHub account.
+
+2. **Go to [Render Dashboard](https://dashboard.render.com/)** → **New +** → **Blueprint**.
+
+3. **Connect your GitHub repo** — Render will detect `render.yaml` and `Dockerfile`.
+
+4. **Set environment secrets** in the Render dashboard:
+   - `ZCODE_API_KEY` — your upstream API key (if using `apikey` auth mode)
+   - `ZCODE_PROXY_API_KEY` — a secret key your clients must send to use the proxy
+   - `ZCODE_PROVIDER` — `zai` or `bigmodel`
+
+5. **Deploy** — Render builds the Docker image and starts the service.
+
+6. **Use the proxy** — your URL will be `https://zcode-proxy.onrender.com`.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ZCODE_PROVIDER` | Yes | Upstream provider: `zai` or `bigmodel` |
+| `ZCODE_API_KEY` | Yes* | Upstream API key (`yourKey.yourSecret` for Z.AI) |
+| `ZCODE_PROXY_API_KEY` | No | Client auth key (recommended) |
+| `ZCODE_PROXY_PORT` | No | Port (default `8080`, Render sets this automatically) |
+| `ZCODE_APP_VERSION` | No | Identity header version (default `3.1.1`) |
+| `ZCODE_LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` |
+
+> *Required only in `apikey` auth mode. For OAuth mode, run `bun run src/index.ts auth login` locally first, then switch `auth.mode` to `oauth` in config.
+
+> **Note:** Render's free tier spins down after inactivity. For always-on, upgrade to a paid plan.
+
+### Testing Your Deployment
+
+```bash
+curl https://your-app.onrender.com/health
+# {"status":"ok","provider":"zai"}
+
+curl https://your-app.onrender.com/v1/models \
+  -H "Authorization: Bearer YOUR_PROXY_API_KEY"
+```
+
+---
+
 ## Available Models
 
 The proxy lists these models on `GET /v1/models` (pinned to the GLM coding-plan tier):

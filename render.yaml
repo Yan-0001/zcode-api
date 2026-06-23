@@ -1,0 +1,33 @@
+# Render Blueprint — Infrastructure as Code
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: zcode-proxy
+    env: docker
+    repo: https://github.com/TriDefender/zcode-api
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # Provider: "zai" or "bigmodel"
+      - key: ZCODE_PROVIDER
+        value: zai
+
+      # Plan tier: "coding-plan" or "start-plan"
+      - key: ZCODE_PLAN
+        value: coding-plan
+
+      # Proxy API key — clients must send this to use the proxy
+      - key: ZCODE_PROXY_API_KEY
+        sync: false
+
+      # Upstream API key (for apikey auth mode)
+      - key: ZCODE_API_KEY
+        sync: false
+
+      # App version identity header
+      - key: ZCODE_APP_VERSION
+        value: "3.1.1"
+
+      # Log level: debug | info | warn | error
+      - key: ZCODE_LOG_LEVEL
+        value: info
