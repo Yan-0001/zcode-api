@@ -200,35 +200,52 @@ bun run src/index.ts config.yaml
 bun run build
 ```
 
-## Deployment — Render (via Docker)
+## Deployment — Hugging Face Spaces (via Docker)
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TriDefender/zcode-api)
+[![Deploy to HF Spaces](https://huggingface.co/front/assets/huggingface_logo-noborder.svg)](https://huggingface.co/new-space?template=Yan-0001/zcode-api)
 
 ### Prerequisites
 
-1. A [Render](https://render.com) account
+1. A [Hugging Face](https://huggingface.co) account (free, **no credit card needed**)
 2. An API key from [Z.AI](https://z.ai) or [Bigmodel](https://bigmodel.cn)
 
-### One-Click Deploy
+### Step-by-Step
 
-Click the button above or follow the manual steps below.
+#### 1. Create a Space
 
-### Manual Setup
+1. Go to [huggingface.co/new-space](https://huggingface.co/new-space)
+2. **Space Name**: `zcode-api` (or whatever you like)
+3. **License**: MIT
+4. **Space SDK**: **Docker**
+5. **Docker Template**: **Custom Docker** (blank)
+6. Click **Create Space**
 
-1. **Fork/clone this repo** to your GitHub account.
+#### 2. Push Code to the Space
 
-2. **Go to [Render Dashboard](https://dashboard.render.com/)** → **New +** → **Blueprint**.
+```bash
+# Add HF Space as a remote
+cd zcode-api
+git remote add hf https://huggingface.co/spaces/Yan-0001/zcode-api
 
-3. **Connect your GitHub repo** — Render will detect `render.yaml` and `Dockerfile`.
+# Push the master branch
+git push hf master
+```
 
-4. **Set environment secrets** in the Render dashboard:
-   - `ZCODE_API_KEY` — your upstream API key (if using `apikey` auth mode)
-   - `ZCODE_PROXY_API_KEY` — a secret key your clients must send to use the proxy
-   - `ZCODE_PROVIDER` — `zai` or `bigmodel`
+#### 3. Set Environment Secrets
 
-5. **Deploy** — Render builds the Docker image and starts the service.
+Di halaman Space Anda:
+- **Settings → Repository Secrets**
+- Tambahkan:
+  - `ZCODE_API_KEY` → API key Z.AI (`apiKey.secretKey`) atau Bigmodel
+  - `ZCODE_PROXY_API_KEY` → secret key untuk client auth (opsional)
+  - `ZCODE_PROVIDER` → `zai` atau `bigmodel`
 
-6. **Use the proxy** — your URL will be `https://zcode-proxy.onrender.com`.
+#### 4. Build & Run
+
+HF Spaces otomatis build dari Dockerfile. Setelah selesai, Space Anda aktif di:
+`https://yan-0001-zcode-api.hf.space`
+
+> Build pertama butuh ~2-3 menit karena pull image `oven/bun`.
 
 ### Environment Variables
 
@@ -237,21 +254,20 @@ Click the button above or follow the manual steps below.
 | `ZCODE_PROVIDER` | Yes | Upstream provider: `zai` or `bigmodel` |
 | `ZCODE_API_KEY` | Yes* | Upstream API key (`yourKey.yourSecret` for Z.AI) |
 | `ZCODE_PROXY_API_KEY` | No | Client auth key (recommended) |
-| `ZCODE_PROXY_PORT` | No | Port (default `8080`, Render sets this automatically) |
 | `ZCODE_APP_VERSION` | No | Identity header version (default `3.1.1`) |
 | `ZCODE_LOG_LEVEL` | No | Log level: `debug`, `info`, `warn`, `error` |
 
 > *Required only in `apikey` auth mode. For OAuth mode, run `bun run src/index.ts auth login` locally first, then switch `auth.mode` to `oauth` in config.
 
-> **Note:** Render's free tier spins down after inactivity. For always-on, upgrade to a paid plan.
+> **Note:** HF Spaces free tier akan *spin down* setelah ~48 jam tanpa aktivitas. Kenaikan pertama setelah idle agak lambat (~30 detik).
 
 ### Testing Your Deployment
 
 ```bash
-curl https://your-app.onrender.com/health
+curl https://yan-0001-zcode-api.hf.space/health
 # {"status":"ok","provider":"zai"}
 
-curl https://your-app.onrender.com/v1/models \
+curl https://yan-0001-zcode-api.hf.space/v1/models \
   -H "Authorization: Bearer YOUR_PROXY_API_KEY"
 ```
 

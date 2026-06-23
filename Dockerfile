@@ -21,6 +21,8 @@ COPY entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 8080
+# Hugging Face Spaces exposes port 7860 internally
+# The entrypoint bridges PORT (7860) → ZCODE_PROXY_PORT automatically
+EXPOSE 7860
 
 ENTRYPOINT ["/entrypoint.sh"]
